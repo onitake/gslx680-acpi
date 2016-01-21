@@ -57,9 +57,18 @@
 #define GSL_JITTER 0
 #define GSL_DEADZONE 0
 
+#define GSL_PACKET_HEADER_SIZE 4
+#define GSL_PACKET_PAYLOAD_SIZE 4
+
+#define GSL_TOUCHES_OFFSET 0
+#define GSL_TIMESTAMP_OFFSET 2
+#define GSL_Y_OFFSET 4
+#define GSL_X_OFFSET 6
+
+
 #define GSL_PACKET_SIZE ( \
-	GSL_MAX_CONTACTS * sizeof(struct gsl_ts_packet_touch) + \
-	sizeof(struct gsl_ts_packet_header) \
+	GSL_MAX_CONTACTS * GSL_PACKET_HEADER_SIZE + \
+	GSL_PACKET_PAYLOAD_SIZE \
 )
 
 #define GSL_FW_NAME "silead_ts.fw"
@@ -127,20 +136,6 @@ struct gsl_ts_fw_page {
 	u16 size;
 	u8 data[128];
 } __packed;
-
-/* TODO use get_unaligned_le16 instead of packed structures */
-/* Hardware touch event data header */
-struct gsl_ts_packet_header {
-	u8 num_fingers;
-	u8 reserved;
-	u16 time_stamp; /* little-endian */
-} __packed;
-/* Hardware touch event data per finger */
-struct gsl_ts_packet_touch {
-	u16 y_z; /* little endian, lower 12 bits = y, upper 4 bits = pressure (?) */
-	u16 x_id; /* little endian, lower 12 bits = x, upper 4 bits = id */
-} __packed;
-
 
 static int gsl_ts_init(struct gsl_ts_data *ts, const struct firmware *fw)
 {
@@ -324,16 +319,14 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 	int rc;
 	struct input_dev *input = ts->input;
 	struct device *dev = &ts->client->dev;
-	struct gsl_ts_packet_header *header;
-	struct gsl_ts_packet_touch *touch;
-	u8 i;
-	u16 touches, tseq, x, y, id, pressure;
+
+	u8 i, touches;
+	u16 tseq, x, y, id, pressure;
 	struct input_mt_pos positions[GSL_MAX_CONTACTS];
 	int slots[GSL_MAX_CONTACTS];
 
-	header = (struct gsl_ts_packet_header *) buf;
-	touches = header->num_fingers;
-	tseq = le16_to_cpu(header->time_stamp);
+	touches = buf[GSL_TOUCHES_OFFSET];
+	tseq = le16_to_cpu(get_unaligned_le16(&buf[GSL_TIMESTAMP_OFFSET]));
 	/* time_stamp is 0 on zero-touch events, seems to wrap around 21800 */
 	dev_vdbg(dev, "%s: got touch events for %u fingers @%u\n", __func__, touches, tseq);
 
@@ -343,9 +336,9 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 
 	for (i = 0; i < touches; i++) {
 
-		y = le16_to_cpu(get_unaligned_le16(&buf[4+4*i]));
-		x = le16_to_cpu(get_unaligned_le16(&buf[6+4*i]));
-		
+		y = le16_to_cpu(get_unaligned_le16(&buf[GSL_Y_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]));
+		x = le16_to_cpu(get_unaligned_le16(&buf[GSL_X_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]));
+
 		id = x >> 12;
 		x &= 0xfff;
 		pressure = y >> 12;
