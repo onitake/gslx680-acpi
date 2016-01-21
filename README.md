@@ -1,5 +1,5 @@
 About
-=====
+-----
 
 This is a generic Linux kernel driver for the Silead GSLx68y
 series of touch screen controllers.
@@ -16,7 +16,7 @@ and dragging is very inaccurate.
 
 
 Firmware Instructions
-=====================
+---------------------
 
 The device requires firmware/configuration data to work.
 Example firmware for some devices is included.
@@ -86,7 +86,7 @@ pose a problem for the controller, however.
 
 
 Build Instructions
-==================
+------------------
 
 If you don't need to cross compile, just make sure you have headers
 for your running Linux kernel installed, then type
@@ -102,7 +102,7 @@ CROSS_COMPILE variables to the make command. For example:
 
 
 Install Instructions
-====================
+--------------------
 
 Install appropriate firmware for your device, as per the Firmware
 Instructions above.
@@ -119,12 +119,12 @@ You may then observe the output from evtest. X.org touchscreen input
 should work too, but you will notice that the touch points are
 off if the panel width and height were not set accurately.
 
-This can be fixed by installing xinput_calibrate and using it to
+This can be fixed by installing xinput_calibrator and using it to
 generate a configuration file for your touchscreen. Some desktop
 environments may offer their own touchscreen calibrator,
 which you can also use.
 
-xinput_calbrator, when run from an X terminal,  will present a
+xinput_calibrator, when run from an X terminal,  will present a
 series of points on the screen. Touch each of them when prompted,
 then save the configuration printed to the terminal to the
 indicated location.
