@@ -28,6 +28,7 @@
 #include <linux/of.h>
 #include <linux/gpio/consumer.h>
 #include <linux/version.h>
+#include <asm/unaligned.h>
 
 /* Device and driver information */
 #define DEVICE_NAME	"gslx680"
@@ -90,7 +91,7 @@ struct gsl_ts_data {
 	struct i2c_client *client;
 	struct input_dev *input;
 	struct gpio_desc *gpio;
-	
+
 	enum gsl_ts_state state;
 
 	bool wake_irq_enabled;
@@ -341,9 +342,10 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 	}
 
 	for (i = 0; i < touches; i++) {
-		touch = (struct gsl_ts_packet_touch *) &buf[sizeof(*header) + i * sizeof(*touch)];
-		y = le16_to_cpu(touch->y_z);
-		x = le16_to_cpu(touch->x_id);
+
+		y = le16_to_cpu(get_unaligned_le16(&buf[4+4*i]));
+		x = le16_to_cpu(get_unaligned_le16(&buf[6+4*i]));
+		
 		id = x >> 12;
 		x &= 0xfff;
 		pressure = y >> 12;
@@ -488,15 +490,15 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		dev_err(&client->dev, "%s: missing IRQ configuration\n", __func__);
 		return -ENODEV;
 	}
-	
+
 	ts = devm_kzalloc(&client->dev, sizeof(struct gsl_ts_data), GFP_KERNEL);
 	if (!ts) {
 		return -ENOMEM;
 	}
-	
+
 	ts->client = client;
 	i2c_set_clientdata(client, ts);
-	
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 	/* Set up ACPI device descriptor GPIO name mappings.
 		* This is a fallback, it will only be used if the system does not
@@ -525,7 +527,7 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto release_gpios;
 	}
 #endif
-	
+
 	if (ACPI_COMPANION(&client->dev)) {
 		/* Wake the device up with a power on reset */
 		error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3);
@@ -536,7 +538,7 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			dev_err(&client->dev, "%s: failed to wake up device through ACPI: %d, continuting anyway\n", __func__, error);
 		}
 	}
-	
+
 	error = request_firmware(&fw, GSL_FW_NAME, &ts->client->dev);
 	if (error < 0) {
 		dev_err(&client->dev, "%s: failed to load firmware: %d\n", __func__, error);
