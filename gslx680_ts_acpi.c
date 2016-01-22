@@ -326,7 +326,7 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 	int slots[GSL_MAX_CONTACTS];
 
 	touches = buf[GSL_TOUCHES_OFFSET];
-	tseq = le16_to_cpu(get_unaligned_le16(&buf[GSL_TIMESTAMP_OFFSET]));
+	tseq = get_unaligned_le16(&buf[GSL_TIMESTAMP_OFFSET]);
 	/* time_stamp is 0 on zero-touch events, seems to wrap around 21800 */
 	dev_vdbg(dev, "%s: got touch events for %u fingers @%u\n", __func__, touches, tseq);
 
@@ -336,8 +336,8 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 
 	for (i = 0; i < touches; i++) {
 
-		y = le16_to_cpu(get_unaligned_le16(&buf[GSL_Y_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]));
-		x = le16_to_cpu(get_unaligned_le16(&buf[GSL_X_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]));
+		y = get_unaligned_le16(&buf[GSL_Y_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]);
+		x = get_unaligned_le16(&buf[GSL_X_OFFSET+GSL_PACKET_PAYLOAD_SIZE*i]);
 
 		id = x >> 12;
 		x &= 0xfff;
