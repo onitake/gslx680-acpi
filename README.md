@@ -18,71 +18,14 @@ and dragging is very inaccurate.
 Firmware Instructions
 ---------------------
 
-The device requires firmware/configuration data to work.
-Example firmware for some devices is included.
+The controller requires firmware to work properly. Firmware
+images extracted from vendor drivers are maintained in a separate
+repository: https://github.com/onitake/gsl-firmware
 
-You may either extract the firmware from an Android or Windows
-driver for this panel or use one of the supplied images.
-
-The Android driver can be found under this path (or similar):
-/system/vendor/modules/gslx680.ko
-Copy this to a SD card or use a GNU/Linux chroot to scp it over, or use
-adb pull.
-On your build machine, on the command line, use the script
-'firmware/fw_extractor' to extract the firmware to its own file.
-
-    ./firmware/fw_extractor my_android_gslx680.ko my_tablets.fw
-
-The Android driver may well contain multiple firmwares to support
-different hardware configurations with the same driver. The extractor
-will spit those out as seperate files. We currently have no way of
-knowing which is right for your device. You will have to try each.
-
-If you have a Windows driver instead, the firmware either comes in
-the form of a file named TS_CFG.h or SileadTouch.fw. The latter
-is just a scrambled version of TS_CFG.h and can be easily
-converted by XORing every byte with 0x88.
-
-Any of these three firmware formats must be converted into the
-compact format supported by gslx680-acpi. Use ./firmware/fwtool
-to handle this job. It also sets some non-generic device
-parameters, such as panel width and height, tracking support, etc.
-
-The file format is described in 'firmware/Firmware/Silead.pm'.
-Use perldoc or a text editor to read.
-
-Example usage:
-
-    ./fwtool -c gslxxxx.fw -m 1680 -w 940 -h 750 -t 10 -f track silead_ts.fw
-
-This will read legacy gslxxxx.fw, convert it into silead_ts.fw in
-the new format, then set the controller type to GSL1680, the panel
-width to 940 dots, the height to 750 dots, the maximum number
-of touch points to 10 and enable software finger tracking.
-
-To convert the scrambled SileadTouch.fw from a Windows driver:
-
-    ./fwtool -c SileadTouch.fw -3 -m 1680 -w 940 -h 750 -t 10 silead_ts.fw
-
-And for an unscrambled TS_CFG.h:
-
-    ./fwtool -c TS_CFG.h -2 -m 1680 -w 940 -h 750 -t 10 silead_ts.fw
-
-You might still need to calibrate the touchscreen later, if
-the numbers are unknown or not accurate. Note that the maximum
-width and height are 4095. The driver is currently hardcoded
-to a touch point limit of 10 fingers, so specifying more than
-that will not work.
-
-The resulting firmware should be named silead_ts.fw and
-installed into /lib/firmware so the driver can find it.
-
-To convert a firmware image back into legacy format, use:
-
-    ./fwtool -x gslxxxx.fw silead_ts.fw
-
-Note that memory page order is not preserved. This should not
-pose a problem for the controller, however.
+If your device is not mentioned yet, or the required silead_ts.fw
+is not available, please post a request in the issue tracker there,
+or consult [gsl-firmware/README.md](https://github.com/onitake/gsl-firmware/blob/master/README.md)
+for information on how to obtain the firmware yourself.
 
 
 Build Instructions
