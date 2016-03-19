@@ -457,14 +457,6 @@ static irqreturn_t gsl_ts_irq(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
-static const struct acpi_gpio_params gsl_ts_power_gpio = { 0, 0, true };
-static const struct acpi_gpio_mapping gsl_ts_acpi_gpios[] = {
-	{ "power-gpio", &gsl_ts_power_gpio, 1 },
-	{ },
-};
-#endif
-
 static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct gsl_ts_data *ts;
@@ -491,22 +483,22 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	ts->client = client;
 	i2c_set_clientdata(client, ts);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
-	/* Set up ACPI device descriptor GPIO name mappings.
-		* This is a fallback, it will only be used if the system does not
-		* provide a corresponding _DSD entry.
-		*/
-	error = acpi_dev_add_driver_gpios(ACPI_COMPANION(&client->dev), gsl_ts_acpi_gpios);
-	if (error < 0) {
-		dev_warn(&client->dev, "%s: failed to register GPIO names, continuing anyway\n", __func__);
+	
+	if (ACPI_COMPANION(&client->dev)) {
+		/* Wake the device up with a power on reset */
+		error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3);
+		if (error == 0) {
+			error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D0);
+		}
+		if (error) {
+			dev_err(&client->dev, "%s: failed to wake up device through ACPI: %d, continuting anyway\n", __func__, error);
+		}
 	}
-#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
-	ts->gpio = devm_gpiod_get(&client->dev, GSL_PWR_GPIO);
+	ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0);
 #else
-	ts->gpio = devm_gpiod_get(&client->dev, GSL_PWR_GPIO, GPIOD_OUT_LOW);
+	ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0, GPIOD_OUT_LOW);
 #endif
 	if (IS_ERR(ts->gpio)) {
 		dev_err(&client->dev, "%s: error obtaining power pin GPIO resource\n", __func__);
@@ -520,17 +512,6 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto release_gpios;
 	}
 #endif
-
-	if (ACPI_COMPANION(&client->dev)) {
-		/* Wake the device up with a power on reset */
-		error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3);
-		if (error == 0) {
-			error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D0);
-		}
-		if (error) {
-			dev_err(&client->dev, "%s: failed to wake up device through ACPI: %d, continuting anyway\n", __func__, error);
-		}
-	}
 
 	error = request_firmware(&fw, GSL_FW_NAME, &ts->client->dev);
 	if (error < 0) {
