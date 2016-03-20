@@ -460,9 +460,17 @@ static irqreturn_t gsl_ts_irq(int irq, void *arg)
 static void gsl_ts_power(struct i2c_client *client, bool turnoff)
 {
 	struct gsl_ts_data *data = i2c_get_clientdata(client);
+	int error;
 
 	if (data) {
-		gpiod_set_value_cansleep(data->gpio, turnoff ? 0 : 1);
+		if (data->gpio) {
+			gpiod_set_value_cansleep(data->gpio, turnoff ? 0 : 1);
+		} else {
+			error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), turnoff ? ACPI_STATE_D3 : ACPI_STATE_D0);
+			if (error) {
+				dev_warn(&client->dev, "%s: error changing power state: %d\n", __func__, error);
+			}
+		}
 		usleep_range(20000, 50000);
 	}
 }
@@ -470,68 +478,51 @@ static void gsl_ts_power(struct i2c_client *client, bool turnoff)
 static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct gsl_ts_data *ts;
-	const struct firmware *fw;
+	const struct firmware *fw = NULL;
 	unsigned long irqflags;
 	int error;
+	bool acpipower;
 
 	dev_warn(&client->dev, "%s: got a device named %s at address 0x%x, IRQ %d, flags 0x%x\n", __func__, client->name, client->addr, client->irq, client->flags);
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_err(&client->dev, "%s: i2c check functionality error\n", __func__);
-		return -ENXIO;
+		error = -ENXIO;
+		goto release;
 	}
 
 	if (client->irq <= 0) {
 		dev_err(&client->dev, "%s: missing IRQ configuration\n", __func__);
-		return -ENODEV;
+		error = -ENODEV;
+		goto release;
 	}
 
 	ts = devm_kzalloc(&client->dev, sizeof(struct gsl_ts_data), GFP_KERNEL);
 	if (!ts) {
-		return -ENOMEM;
+		error = -ENOMEM;
+		goto release;
 	}
 
 	ts->client = client;
 	i2c_set_clientdata(client, ts);
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
-	ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0);
-#else
-	ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0, GPIOD_OUT_LOW);
-#endif
-	if (IS_ERR(ts->gpio)) {
-		dev_err(&client->dev, "%s: error obtaining power pin GPIO resource\n", __func__);
-		error = PTR_ERR(ts->gpio);
-		goto release_gpios;
-	}
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
-	error = gpiod_direction_output(ts->gpio, 0);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: error setting GPIO pin direction\n", __func__);
-		goto release_gpios;
-	}
-#endif
-
-	/* power up the device */
-	gsl_ts_power(client, false);
-
+	
 	error = request_firmware(&fw, GSL_FW_NAME, &ts->client->dev);
 	if (error < 0) {
 		dev_err(&client->dev, "%s: failed to load firmware: %d\n", __func__, error);
-		goto release_gpios;
+		goto release;
 	}
 
 	error = gsl_ts_init(ts, fw);
 	if (error < 0) {
 		dev_err(&client->dev, "%s: failed to initialize: %d\n", __func__, error);
-		goto release_fw;
+		goto release;
 	}
 
 	ts->input = devm_input_allocate_device(&client->dev);
 	if (!ts->input) {
 		dev_err(&client->dev, "%s: failed to allocate input device\n", __func__);
 		error = -ENOMEM;
-		goto release_fw;
+		goto release;
 	}
 
 	ts->input->name = "Silead GSLx680 Touchscreen";
@@ -551,7 +542,61 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	error = input_register_device(ts->input);
 	if (error) {
 		dev_err(&client->dev, "%s: unable to register input device: %d\n", __func__, error);
-		goto release_fw;
+		goto release;
+	}
+
+	/* Try to use ACPI power methods first */
+	acpipower = false;
+	if (ACPI_COMPANION(&client->dev)) {
+		/* Wake the device up with a power on reset */
+		if (acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3)) {
+			dev_warn(&client->dev, "%s: failed to wake up device through ACPI: %d, using GPIO controls instead\n", __func__, error);
+		} else {
+			acpipower = true;
+		}
+	}
+
+	/* Not available, use GPIO settings from DSDT/DT instead */
+	if (!acpipower) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+		ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0);
+#else
+		ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0, GPIOD_OUT_LOW);
+#endif
+		if (IS_ERR(ts->gpio)) {
+			dev_err(&client->dev, "%s: error obtaining power pin GPIO resource\n", __func__);
+			error = PTR_ERR(ts->gpio);
+			goto release;
+		}
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+		error = gpiod_direction_output(ts->gpio, 0);
+		if (error < 0) {
+			dev_err(&client->dev, "%s: error setting GPIO pin direction\n", __func__);
+			goto release;
+		}
+#endif
+	} else {
+		ts->gpio = NULL;
+	}
+
+	/* Enable power */
+	gsl_ts_power(client, false);
+
+	/* Execute the controller startup sequence */
+	error = gsl_ts_reset_chip(client);
+	if (error < 0) {
+		dev_err(&client->dev, "%s: chip reset failed\n", __func__);
+		goto release;
+	}
+	error = gsl_ts_write_fw(ts, fw);
+	if (error < 0) {
+		dev_err(&client->dev, "%s: firmware transfer failed\n", __func__);
+		goto release;
+	}
+	error = gsl_ts_startup_chip(client);
+	if (error < 0) {
+		dev_err(&client->dev, "%s: chip startup failed\n", __func__);
+		goto release;
 	}
 
 	/*
@@ -572,24 +617,7 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 	);
 	if (error) {
 		dev_err(&client->dev, "%s: failed to register interrupt\n", __func__);
-		goto release_fw;
-	}
-
-	/* Execute the controller startup sequence */
-	error = gsl_ts_reset_chip(client);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: chip reset failed\n", __func__);
-		goto release_fw;
-	}
-	error = gsl_ts_write_fw(ts, fw);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: firmware transfer failed\n", __func__);
-		goto release_fw;
-	}
-	error = gsl_ts_startup_chip(client);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: chip startup failed\n", __func__);
-		goto release_fw;
+		goto release;
 	}
 
 	/*
@@ -602,12 +630,11 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	ts->state = GSL_TS_GREEN;
 
-release_fw:
+release:
 	if (fw) {
 		release_firmware(fw);
 	}
 
-release_gpios:
 	if (error < 0) {
 		return error;
 	}
@@ -615,6 +642,8 @@ release_gpios:
 }
 
 int gsl_ts_remove(struct i2c_client *client) {
+	/* Power the device off */
+	gsl_ts_power(client, true);
 	return 0;
 }
 
