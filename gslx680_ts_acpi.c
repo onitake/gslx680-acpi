@@ -457,6 +457,16 @@ static irqreturn_t gsl_ts_irq(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+static void gsl_ts_power(struct i2c_client *client, bool turnoff)
+{
+	struct gsl_ts_data *data = i2c_get_clientdata(client);
+
+	if (data) {
+		gpiod_set_value_cansleep(data->gpio, turnoff ? 0 : 1);
+		usleep_range(20000, 50000);
+	}
+}
+
 static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct gsl_ts_data *ts;
@@ -483,17 +493,6 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	ts->client = client;
 	i2c_set_clientdata(client, ts);
-	
-	if (ACPI_COMPANION(&client->dev)) {
-		/* Wake the device up with a power on reset */
-		error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3);
-		if (error == 0) {
-			error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D0);
-		}
-		if (error) {
-			dev_err(&client->dev, "%s: failed to wake up device through ACPI: %d, continuting anyway\n", __func__, error);
-		}
-	}
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
 	ts->gpio = devm_gpiod_get_index(&client->dev, GSL_PWR_GPIO, 0);
@@ -512,6 +511,9 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto release_gpios;
 	}
 #endif
+
+	/* power up the device */
+	gsl_ts_power(client, false);
 
 	error = request_firmware(&fw, GSL_FW_NAME, &ts->client->dev);
 	if (error < 0) {
@@ -607,19 +609,12 @@ release_fw:
 
 release_gpios:
 	if (error < 0) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
-		acpi_dev_remove_driver_gpios(ACPI_COMPANION(&client->dev));
-#endif
-
 		return error;
 	}
 	return 0;
 }
 
 int gsl_ts_remove(struct i2c_client *client) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
-	acpi_dev_remove_driver_gpios(ACPI_COMPANION(&client->dev));
-#endif
 	return 0;
 }
 
@@ -635,8 +630,7 @@ static int __maybe_unused gsl_ts_suspend(struct device *dev)
 	gsl_ts_reset_chip(client);
 	usleep_range(10000, 20000);
 
-	/* Do we need to do this ourselves? */
-	acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3);
+	gsl_ts_power(client, true);
 
 	if (device_may_wakeup(dev)) {
 		ts->wake_irq_enabled = (enable_irq_wake(client->irq) == 0);
@@ -658,9 +652,7 @@ static int __maybe_unused gsl_ts_resume(struct device *dev)
 		disable_irq_wake(client->irq);
 	}
 
-	/* Do we need to do this ourselves? */
-	acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D0);
-	usleep_range(20000, 50000);
+	gsl_ts_power(client, false);
 
 	gsl_ts_reset_chip(client);
 	gsl_ts_startup_chip(client);
