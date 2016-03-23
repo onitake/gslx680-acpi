@@ -38,10 +38,16 @@ for your running Linux kernel installed, then type
 
 This will produce gslx680_ts_acpi.ko
 
-If you need to cross compile, pass appropriate KDIR, ARCH and
+If you need to cross compile, pass appropriate KSRC, ARCH and
 CROSS_COMPILE variables to the make command. For example:
 
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KDIR=../linux-arm
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KSRC=../linux-arm
+
+CROSS_COMPILE is the compiler prefix (i.e. gcc will become
+arm-linux-gnueabihf-gcc with CROSS_COMPILE=arm-linux-gnueabihf-), ARCH
+is the target architecture as understood by the kernel (note: use i386
+for 32 bit Intel platforms) and KSRC is the path to the target
+kernel sources or kernel headers.
 
 
 Install Instructions
