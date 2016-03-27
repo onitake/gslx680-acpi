@@ -355,18 +355,10 @@ static void gsl_ts_mt_event(struct gsl_ts_data *ts, u8 *buf)
 			swap(x, y);
 		}
 		if (ts->x_reversed) {
-			if (x < ts->x_max) {
-				x = ts->x_max - x;
-			} else {
-				x = 0;
-			}
+			x = ts->x_max - x;
 		}
 		if (ts->y_reversed) {
-			if (y < ts->y_max) {
-				y = ts->y_max - y;
-			} else {
-				y = 0;
-			}
+			y = ts->y_max - y;
 		}
 
 		dev_vdbg(dev, "%s: touch event %u: x=%u y=%u id=0x%x p=%u\n", __func__, i, x, y, id, pressure);
