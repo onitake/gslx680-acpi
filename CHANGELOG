@@ -1,0 +1,10 @@
+0.2.1 (2016-04-28 onitake):
+
+	- Changed versioning scheme (2.0.0 becomes 0.2.0)
+	- Fixed DeviceTree support
+	- Added DKMS script
+	- Added module parameter for specifying firmware name
+	- Fixed cross compilation
+	- Improved wakeup pin control (ACPI/GPIO)
+	- Moved firmware and tools to https://github.com/onitake/gsl-firmware
+	- Improved handling of panel dimensions

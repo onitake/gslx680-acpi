@@ -32,8 +32,8 @@
 #include <asm/unaligned.h>
 
 /* Device and driver information */
-#define DEVICE_NAME	"gslx680"
-#define DRIVER_VERSION	"2.0.0"
+#define DEVICE_NAME "gslx680"
+#define DRIVER_VERSION "0.2.1"
 
 /* Hardware API constants */
 #define GSL_DATA_REG 0x80
@@ -467,16 +467,20 @@ static irqreturn_t gsl_ts_irq(int irq, void *arg)
 static void gsl_ts_power(struct i2c_client *client, bool turnoff)
 {
 	struct gsl_ts_data *data = i2c_get_clientdata(client);
+#ifdef CONFIG_ACPI
 	int error;
+#endif
 
 	if (data) {
 		if (data->gpio) {
 			gpiod_set_value_cansleep(data->gpio, turnoff ? 0 : 1);
+#ifdef CONFIG_ACPI
 		} else {
 			error = acpi_bus_set_power(ACPI_HANDLE(&client->dev), turnoff ? ACPI_STATE_D3 : ACPI_STATE_D0);
 			if (error) {
 				dev_warn(&client->dev, "%s: error changing power state: %d\n", __func__, error);
 			}
+#endif
 		}
 		usleep_range(20000, 50000);
 	}
@@ -559,6 +563,7 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	/* Try to use ACPI power methods first */
 	acpipower = false;
+#ifdef CONFIG_ACPI
 	if (ACPI_COMPANION(&client->dev)) {
 		/* Wake the device up with a power on reset */
 		if (acpi_bus_set_power(ACPI_HANDLE(&client->dev), ACPI_STATE_D3)) {
@@ -567,7 +572,7 @@ static int gsl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 			acpipower = true;
 		}
 	}
-
+#endif
 	/* Not available, use GPIO settings from DSDT/DT instead */
 	if (!acpipower) {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
@@ -728,10 +733,7 @@ MODULE_DEVICE_TABLE(acpi, gsl_ts_acpi_match);
 #endif
 
 #ifdef CONFIG_OF
-/* This should take care of OpenFirmware and DeviceTree instantiations,
- * but they're completely untested. Volunteers welcome.
- * Is anyone using DeviceTree with this touch screen at all?
- */
+/* These should work, but more testing is needed */
 static const struct of_device_id gsl_ts_of_match[] = {
 	{ .compatible = "silead,gsl1680" },
 	{ .compatible = "silead,gsl3680" },
